@@ -12,6 +12,8 @@ wget -O /tmp/install-fix-urltest.sh https://raw.githubusercontent.com/shellovxx/
 
 Ветка [`shellovxx/upstream-fix`](https://github.com/shellovxx/fix-urltest/tree/shellovxx/upstream-fix) предназначена для будущего PR в оригинальный Forkop: в ней нет перенаправления установщика и обновлений на этот форк. В `main` находятся дополнительно настройки выпуска и установки этого форка.
 
+Исправленный выпуск **1.0.6** включает сохранение установленного ядра при обновлении старых версий и исправление запуска с DNS, списками и компонентами через выбранную секцию. На холодном старте Forkop ждёт готовности DNS/TPROXY до 180 секунд, пока sing-box загружает удалённые rule-set; прогресс ожидания виден в журнале. Для sing-box 1.14 и новее используется `http_client` вместо устаревшего `download_detour`, а `independent_cache` удаляется; старые ядра получают совместимые параметры. Разрешение имён прокси и загрузчика использует bootstrap DNS.
+
 Оригинальная документация Forkop приведена ниже.
 
 [![Star](https://img.shields.io/github/stars/ushan0v/forkop?style=social)](https://github.com/ushan0v/forkop/stargazers)

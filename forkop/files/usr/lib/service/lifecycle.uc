@@ -52,7 +52,8 @@ const RELOAD_STATE_FORMAT = int(getenv("FORKOP_RELOAD_STATE_FORMAT") || "1");
 const RUNTIME_CACHE_FORMAT = int(getenv("FORKOP_RUNTIME_CACHE_FORMAT") || "8");
 const RUNTIME_STABLE_MIN_AGE = int(getenv("FORKOP_RUNTIME_STABLE_MIN_AGE") || "2");
 const SING_BOX_START_STABLE_MIN_AGE = int(getenv("FORKOP_SING_BOX_START_STABLE_MIN_AGE") || "8");
-const SING_BOX_START_VERIFY_TIMEOUT = int(getenv("FORKOP_SING_BOX_START_VERIFY_TIMEOUT") || "10");
+// A cold start downloads remote rule-sets before opening the DNS/TPROXY ports.
+const SING_BOX_START_VERIFY_TIMEOUT = int(getenv("FORKOP_SING_BOX_START_VERIFY_TIMEOUT") || "180");
 const NFT_POPULATE_ENABLED_DEFAULT = int(getenv("FORKOP_NFT_POPULATE_ENABLED") || "1");
 
 const TMP_SING_BOX_FOLDER = getenv("TMP_SING_BOX_FOLDER") || constant_value("TMP_SING_BOX_FOLDER", "/tmp/sing-box");

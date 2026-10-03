@@ -605,15 +605,23 @@ function forkop_stably_running(rt_table, nft_table, mark, min_age) {
 
 function wait_forkop_stable_start(rt_table, nft_table, mark, min_age, timeout) {
     timeout = int(timeout || 8);
-    while (timeout > 0) {
+    let started = clock()[0];
+    let next_notice = 15;
+    while (true) {
         if (forkop_stably_running(rt_table, nft_table, mark, min_age))
             return true;
 
+        let elapsed = clock()[0] - started;
+        if (elapsed >= timeout)
+            return false;
+        if (elapsed >= next_notice) {
+            command_success_from_args([ "logger", "-t", "forkop",
+                "[info] Waiting for sing-box DNS/TPROXY readiness (" + elapsed + "/" + timeout +
+                "s); remote rule-set initialization may still be in progress" ]);
+            next_notice = elapsed + 15;
+        }
         command_success_from_args([ "sleep", "1" ]);
-        timeout--;
     }
-
-    return forkop_stably_running(rt_table, nft_table, mark, min_age);
 }
 
 function whitespace_fields(value) {

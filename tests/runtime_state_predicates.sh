@@ -13,6 +13,8 @@ export BYEDPI_DEFAULT_CMD_OPTS="--default-bye"
 export FORKOP_FAKE_INIT_CAPTURE="$WORK_DIR/pending-reload-init.args"
 
 cleanup() {
+  [ -z "${sing_box_pid:-}" ] || kill "$sing_box_pid" >/dev/null 2>&1 || true
+  [ -z "${ports_ready_pid:-}" ] || kill "$ports_ready_pid" >/dev/null 2>&1 || true
   rm -rf "$WORK_DIR"
 }
 trap cleanup EXIT
@@ -223,6 +225,32 @@ if ! PATH="$WORK_DIR/stable-start-bin:$PATH" \
 fi
 kill "$sing_box_pid" >/dev/null 2>&1 || true
 wait "$sing_box_pid" 2>/dev/null || true
+
+# Cold remote rule-set downloads can exceed the former ten-second startup limit.
+"$WORK_DIR/stable-start-bin/sing-box" 40 &
+sing_box_pid=$!
+printf '%s\n' "$sing_box_pid" >"$WORK_DIR/sing-box.pid"
+cp "$WORK_DIR/sing-box.netstat" "$WORK_DIR/sing-box.ready.netstat"
+: >"$WORK_DIR/sing-box.netstat"
+if PATH="$WORK_DIR/stable-start-bin:$PATH" REAL_UCODE="$UCODE_BIN" \
+  SING_BOX_TEST_PID_FILE="$WORK_DIR/sing-box.pid" SING_BOX_TEST_NETSTAT_FILE="$WORK_DIR/sing-box.netstat" \
+  state_ucode wait-forkop-stable-start forkop ForkopTable 0x00100000 2 1; then
+  fail "a live process without DNS/TPROXY listeners must still time out"
+fi
+(
+  sleep 12
+  cp "$WORK_DIR/sing-box.ready.netstat" "$WORK_DIR/sing-box.netstat"
+) &
+ports_ready_pid=$!
+PATH="$WORK_DIR/stable-start-bin:$PATH" REAL_UCODE="$UCODE_BIN" \
+  SING_BOX_TEST_PID_FILE="$WORK_DIR/sing-box.pid" SING_BOX_TEST_NETSTAT_FILE="$WORK_DIR/sing-box.netstat" \
+  state_ucode wait-forkop-stable-start forkop ForkopTable 0x00100000 8 20 ||
+  fail "startup must wait for listeners after a slow remote rule-set initialization"
+wait "$ports_ready_pid"
+ports_ready_pid=''
+kill "$sing_box_pid" >/dev/null 2>&1 || true
+wait "$sing_box_pid" 2>/dev/null || true
+sing_box_pid=''
 
 PENDING_RELOAD_FILE="$WORK_DIR/reload.pending"
 state_ucode mark-pending-reload "$PENDING_RELOAD_FILE" "reload_busy"

@@ -3022,7 +3022,25 @@ function add_server_routes(config, servers, sections) {
     }
 }
 
-function generate_config(output_path, service_address, mwan3_active, supports_xhttp, deferred_sections, supports_mlkem) {
+function migrate_runtime_options(config, version) {
+    let parts = match(as_string(version), /^([0-9]+)\.([0-9]+)\./);
+    if (!parts || (int(parts[1]) < 2 && (int(parts[1]) != 1 || int(parts[2]) < 14)))
+        return;
+
+    // 1.14 always isolates DNS caches; older cores still need this option.
+    delete config.dns.independent_cache;
+    for (let rule_set in config.route.rule_set) {
+        if (rule_set.type != "remote")
+            continue;
+        rule_set.http_client = {
+            detour: rule_set.download_detour || runtime_constants.DIRECT_OUTBOUND_TAG,
+            domain_resolver: runtime_constants.BOOTSTRAP_DNS_SERVER_TAG
+        };
+        delete rule_set.download_detour;
+    }
+}
+
+function generate_config(output_path, service_address, mwan3_active, supports_xhttp, deferred_sections, supports_mlkem, version) {
     runtime_supports_mlkem = cli_bool(supports_mlkem);
     runtime_supports_xhttp = supports_xhttp == null || as_string(supports_xhttp) == ""
         ? true
@@ -3061,6 +3079,7 @@ function generate_config(output_path, service_address, mwan3_active, supports_xh
     health_config.apply_reality(config, runtime_supports_mlkem);
     assert_unique_outbound_tags(config);
     health_config.finalize_probe(config);
+    migrate_runtime_options(config, version);
     strip_internal_fields(config);
     // Resolve detours after every section has been generated, including forward references.
     for (let state in runtime_health_states) {
@@ -3074,11 +3093,11 @@ function generate_config(output_path, service_address, mwan3_active, supports_xh
     }
 }
 
-function generate_config_fixture(fixture_path, output_path, service_address, mwan3_active, supports_xhttp, deferred_sections, supports_mlkem) {
+function generate_config_fixture(fixture_path, output_path, service_address, mwan3_active, supports_xhttp, deferred_sections, supports_mlkem, version) {
     use_fixture_cursor(fixture_path);
     runtime_subscription.set_section_cache_dir(output_path + ".section-cache");
     runtime_ruleset_folder = output_path + ".rulesets";
-    generate_config(output_path, service_address, mwan3_active, supports_xhttp, deferred_sections, supports_mlkem);
+    generate_config(output_path, service_address, mwan3_active, supports_xhttp, deferred_sections, supports_mlkem, version);
 }
 
 function stdin_length() {
@@ -3192,9 +3211,9 @@ function object_nonempty_stdin() {
 let mode = ARGV[0] || "";
 
 if (mode == "generate-config")
-    generate_config(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5] || "", ARGV[6] || "0");
+    generate_config(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5] || "", ARGV[6] || "0", ARGV[7] || "");
 else if (mode == "generate-config-fixture")
-    generate_config_fixture(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6] || "", ARGV[7] || "0");
+    generate_config_fixture(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6] || "", ARGV[7] || "0", ARGV[8] || "");
 else if (mode == "stdin-length")
     stdin_length();
 else if (mode == "stdin-contains")
