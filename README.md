@@ -1,4 +1,18 @@
-# Forkop (Podkop Plus)
+# fix-urltest — Forkop с полной проверкой серверов
+
+Форк [ushan0v/forkop](https://github.com/ushan0v/forkop). Умный выбор проверяет полную передачу HTTPS, удерживает исправный сервер и исключает узлы, которые проходят только короткий URLTest. Поддержка REALITY ML-KEM включается автоматически на совместимом ядре. [Описание проверки и правил выбора](docs/smart-selection.md).
+
+Установщик и обновления в интерфейсе используют релизы **shellovxx/fix-urltest**. По умолчанию устанавливается обычное готовое **sing-box-extended**; уже установленное extended-ядро сохраняется. Включите «Умный выбор сервера» в настройках нужной секции. Предел по умолчанию — 300 мс.
+
+```sh
+wget -O /tmp/install-fix-urltest.sh https://raw.githubusercontent.com/shellovxx/fix-urltest/main/install.sh && sh /tmp/install-fix-urltest.sh
+```
+
+Для явного выбора ядра добавьте к запуску скрипта `--sing-box stable`, `--sing-box extended`, `--sing-box extended-compressed` или `--sing-box keep`. Сжатый вариант требует больше оперативной памяти при запуске; на Redmi AX6 используйте обычное extended. Перед установкой сохраните настройки и проверьте свободное место.
+
+Ветка [`codex/upstream-fix`](https://github.com/shellovxx/fix-urltest/tree/codex/upstream-fix) предназначена для будущего PR в оригинальный Forkop: в ней нет перенаправления установщика и обновлений на этот форк. В `main` находятся дополнительно настройки выпуска и установки этого форка.
+
+Оригинальная документация Forkop приведена ниже.
 
 [![Star](https://img.shields.io/github/stars/ushan0v/forkop?style=social)](https://github.com/ushan0v/forkop/stargazers)
 [![Releases](https://img.shields.io/github/v/release/ushan0v/forkop?label=releases)](https://github.com/ushan0v/forkop/releases)
@@ -10,14 +24,14 @@
 ### Установка
 
 ```sh
-sh <(wget -O - https://raw.githubusercontent.com/ushan0v/forkop/main/install.sh)
+wget -O /tmp/install-fix-urltest.sh https://raw.githubusercontent.com/shellovxx/fix-urltest/main/install.sh && sh /tmp/install-fix-urltest.sh
 ```
 
 <details>
 <summary><sub>Альтернативный способ установки</sub></summary>
 
 ```sh
-sh <(wget -O - https://forkop.sourceforge.io/install.sh)
+curl -fsSL https://raw.githubusercontent.com/shellovxx/fix-urltest/main/install.sh -o /tmp/install-fix-urltest.sh && sh /tmp/install-fix-urltest.sh
 ```
 
 </details>

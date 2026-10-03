@@ -1,8 +1,8 @@
 #!/bin/sh
 # shellcheck shell=dash
 
-REPO_OWNER="ushan0v"
-REPO_NAME="forkop"
+REPO_OWNER="shellovxx"
+REPO_NAME="fix-urltest"
 
 REQUIRED_SPACE_KB=15360
 CONNECT_TIMEOUT_SECONDS=15
@@ -18,6 +18,7 @@ FORKOP_LEGACY_DETECTED=0
 FORKOP_I18N_REQUESTED=0
 INSTALLER_LANG="en"
 SING_BOX_INSTALL_VARIANT=""
+SING_BOX_REQUESTED_VARIANT=""
 
 FORKOP_RELEASE_JSON=""
 FORKOP_RELEASE_TAG=""
@@ -53,13 +54,14 @@ fail() {
 
 usage() {
     cat <<EOF
-Usage: $0
+Usage: $0 [--sing-box extended|extended-compressed|stable|keep]
 
 Installs or updates Forkop packages:
   - forkop
   - luci-app-forkop
   - luci-i18n-forkop-ru when requested or when LuCI language is Russian
 
+Uses sing-box-extended by default; an existing extended core is preserved.
 Can also install or switch sing-box variant:
   - stable sing-box from OpenWrt feeds
   - sing-box-extended from GitHub OpenWrt packages (for xHTTP support)
@@ -72,6 +74,16 @@ parse_args() {
             -h|--help)
                 usage
                 exit 0
+                ;;
+            --sing-box)
+                [ "$#" -ge 2 ] || fail "--sing-box requires a variant"
+                shift
+                case "$1" in
+                    extended|extended-compressed|stable|keep)
+                        SING_BOX_REQUESTED_VARIANT="$1"
+                        ;;
+                    *) fail "Unknown sing-box variant: $1" ;;
+                esac
                 ;;
             *)
                 fail "Unknown installer option: $1"
@@ -1565,11 +1577,23 @@ check_root() {
     fi
 }
 
+installation_space_requirement() {
+    # Package-only updates replace the existing Forkop files and preserve the core.
+    if pkg_is_installed "forkop" && sing_box_is_present &&
+        { [ "$SING_BOX_REQUESTED_VARIANT" = "keep" ] ||
+          { [ -z "$SING_BOX_REQUESTED_VARIANT" ] && sing-box version 2>/dev/null | grep -q 'extended'; }; }; then
+        printf '%s\n' 4096
+    else
+        printf '%s\n' "$REQUIRED_SPACE_KB"
+    fi
+}
+
 check_system() {
     release=""
     major=""
     model=""
     available_space=""
+    forkop_required_space_kb="$(installation_space_requirement)"
 
     [ -f /etc/openwrt_release ] || fail "This installer supports OpenWrt only"
 
@@ -1586,8 +1610,8 @@ check_system() {
     available_space="$(df /overlay 2>/dev/null | awk 'NR==2 {print $4}')"
     [ -n "$available_space" ] || available_space="$(df / 2>/dev/null | awk 'NR==2 {print $4}')"
 
-    if [ -n "$available_space" ] && [ "$available_space" -lt "$REQUIRED_SPACE_KB" ]; then
-        fail "Not enough free flash space. Available: $((available_space / 1024)) MB, required: $((REQUIRED_SPACE_KB / 1024)) MB"
+    if [ -n "$available_space" ] && [ "$available_space" -lt "$forkop_required_space_kb" ]; then
+        fail "Not enough free flash space. Available: $((available_space / 1024)) MB, required: $((forkop_required_space_kb / 1024)) MB"
     fi
 }
 
@@ -1746,24 +1770,27 @@ sing_box_is_present() {
 
 select_sing_box_installation() {
     answer=""
-    default_choice=1
+    default_choice=2
 
-    if [ "$FORKOP_LEGACY_DETECTED" -eq 1 ] &&
-        [ -r /etc/init.d/sing-box ] &&
-        grep -Fq 'managed sing-box service for binary variants' /etc/init.d/sing-box; then
-        SING_BOX_INSTALL_VARIANT="extended-compressed"
-        msg "The legacy binary-managed sing-box variant will be reinstalled for Forkop"
+    if [ -n "$SING_BOX_REQUESTED_VARIANT" ]; then
+        if [ "$SING_BOX_REQUESTED_VARIANT" = "keep" ]; then
+            sing_box_is_present || fail "--sing-box keep requires an installed core"
+            SING_BOX_INSTALL_VARIANT=""
+        else
+            SING_BOX_INSTALL_VARIANT="$SING_BOX_REQUESTED_VARIANT"
+        fi
         return 0
     fi
 
-    if sing_box_is_present; then
+    if sing_box_is_present && sing-box version 2>/dev/null | grep -q 'extended'; then
         SING_BOX_INSTALL_VARIANT=""
+        msg "An extended core is already installed; preserving it"
         return 0
     fi
 
     if [ ! -t 0 ]; then
-        SING_BOX_INSTALL_VARIANT="stable"
-        msg "$(installer_text sing_box_prompt): $default_choice ($(installer_text sing_box_stable), non-interactive)"
+        SING_BOX_INSTALL_VARIANT="extended"
+        msg "$(installer_text sing_box_prompt): $default_choice ($(installer_text sing_box_extended), non-interactive)"
         return 0
     fi
 
