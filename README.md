@@ -10,7 +10,7 @@ wget -O /tmp/install-fix-urltest.sh https://raw.githubusercontent.com/shellovxx/
 
 Для явного выбора ядра добавьте к запуску скрипта `--sing-box stable`, `--sing-box extended`, `--sing-box extended-compressed` или `--sing-box keep`. Сжатый вариант требует больше оперативной памяти при запуске; на Redmi AX6 используйте обычное extended. Перед установкой сохраните настройки и проверьте свободное место.
 
-Ветка [`codex/upstream-fix`](https://github.com/shellovxx/fix-urltest/tree/codex/upstream-fix) предназначена для будущего PR в оригинальный Forkop: в ней нет перенаправления установщика и обновлений на этот форк. В `main` находятся дополнительно настройки выпуска и установки этого форка.
+Ветка [`shellovxx/upstream-fix`](https://github.com/shellovxx/fix-urltest/tree/shellovxx/upstream-fix) предназначена для будущего PR в оригинальный Forkop: в ней нет перенаправления установщика и обновлений на этот форк. В `main` находятся дополнительно настройки выпуска и установки этого форка.
 
 Оригинальная документация Forkop приведена ниже.
 
