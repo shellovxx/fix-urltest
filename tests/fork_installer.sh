@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-awk '/^(parse_args|sing_box_is_present|select_sing_box_installation|installation_space_requirement)\(\) \{/ {capture=1} capture {print} capture && /^\}/ {capture=0}' "$ROOT/install.sh" > "$WORK/functions.sh"
+awk '/^(parse_args|sing_box_is_present|select_sing_box_installation|installation_space_requirement|install_backend_package)\(\) \{/ {capture=1} capture {print} capture && /^\}/ {capture=0}' "$ROOT/install.sh" > "$WORK/functions.sh"
 # shellcheck disable=SC1091
 source "$WORK/functions.sh"
 msg() { :; }
@@ -45,4 +45,24 @@ PACKAGE_INSTALLED=0
 SING_BOX_REQUESTED_VARIANT=''
 [[ "$(installation_space_requirement)" == 15360 ]] || fail 'fresh installation received update allowance'
 [[ "$(ucode "$ROOT/forkop/files/usr/lib/core/constants.uc" get FORKOP_RELEASE_REPO)" == shellovxx/fix-urltest ]] || fail 'updates would return to upstream'
-printf 'Fork installer default, overrides and update source checks passed\n'
+export FORKOP_UCI_STATE_FILE="$WORK/config.state"
+printf 'forkop.settings=settings\nforkop.settings.dont_touch_dhcp=1\n' > "$FORKOP_UCI_STATE_FILE"
+export FORKOP_INIT="$WORK/bin/no-service"
+printf '#!/bin/sh\nexit 0\n' > "$FORKOP_INIT"
+chmod +x "$FORKOP_INIT"
+export FORKOP_PACKAGE_UPGRADE_STATE="$WORK/upgrade.state"
+export FORKOP_RT_TABLES="$WORK/rt_tables"
+export FORKOP_SING_BOX_INIT="$WORK/managed-init"
+printf '#!/bin/sh\n# Forkop managed sing-box service for binary variants\nexit 0\n' > "$FORKOP_SING_BOX_INIT"
+export FORKOP_SING_BOX_BIN="$WORK/core"
+export FORKOP_SING_BOX_CRONET="$WORK/cronet"
+touch "$FORKOP_SING_BOX_BIN" "$FORKOP_SING_BOX_CRONET"
+export TMP_DIR="$WORK"
+export FORKOP_BACKEND_FILE="$WORK/package.apk"
+# The old upgrade hook behaves like removal; exercise that destructive action
+# under the installer's compatibility guard, without touching system files.
+pkg_install_files() { ucode -L "$ROOT/forkop/files/usr/lib" "$ROOT/forkop/files/usr/lib/service/package.uc" prerm remove; }
+install_backend_package
+[[ -f "$WORK/core" && -f "$WORK/managed-init" && -f "$WORK/cronet" ]] || fail 'installer did not protect a managed core from old upgrade hooks'
+[[ "$FORKOP_SING_BOX_INIT" == "$WORK/managed-init" ]] || fail 'package-hook override leaked into runtime'
+printf 'Fork installer default, overrides and core preservation checks passed\n'

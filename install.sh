@@ -1939,7 +1939,10 @@ download_forkop_packages() {
 }
 
 install_backend_package() {
-    pkg_install_files "$FORKOP_BACKEND_FILE" || fail "forkop installation failed"
+    # Older Forkop pre-upgrade hooks delete binary-managed cores. Scope this
+    # existing package-hook override to the upgrade; runtime still uses its real init.
+    FORKOP_SING_BOX_INIT="$TMP_DIR/preserve-existing-core" \
+        pkg_install_files "$FORKOP_BACKEND_FILE" || fail "forkop installation failed"
 }
 
 migrate_legacy_configuration() {
