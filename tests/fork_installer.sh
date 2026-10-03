@@ -3,7 +3,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-awk '/^(parse_args|sing_box_is_present|select_sing_box_installation|installation_space_requirement|install_backend_package)\(\) \{/ {capture=1} capture {print} capture && /^\}/ {capture=0}' "$ROOT/install.sh" > "$WORK/functions.sh"
+awk '/^(parse_args|sing_box_is_present|select_sing_box_installation|installation_space_requirement|install_backend_package|pkg_install_files)\(\) \{/ {capture=1} capture {print} capture && /^\}/ {capture=0}' "$ROOT/install.sh" > "$WORK/functions.sh"
 # shellcheck disable=SC1091
 source "$WORK/functions.sh"
 msg() { :; }
@@ -45,6 +45,13 @@ PACKAGE_INSTALLED=0
 SING_BOX_REQUESTED_VARIANT=''
 [[ "$(installation_space_requirement)" == 15360 ]] || fail 'fresh installation received update allowance'
 [[ "$(ucode "$ROOT/forkop/files/usr/lib/core/constants.uc" get FORKOP_RELEASE_REPO)" == shellovxx/fix-urltest ]] || fail 'updates would return to upstream'
+opkg() { printf '%s\n' "$@" > "$WORK/opkg-install.args"; }
+PKG_IS_APK=0
+pkg_install_files "$WORK/forkop_1.0.6.ipk"
+grep -Fxq -- '--force-reinstall' "$WORK/opkg-install.args" || fail 'same-version corrected release must be reinstalled'
+grep -Fxq -- '--force-downgrade' "$WORK/opkg-install.args" || fail 'installer must allow replacing 1.0.7 with corrected 1.0.6'
+grep -Fxq "$WORK/forkop_1.0.6.ipk" "$WORK/opkg-install.args" || fail 'installer lost the selected package'
+unset -f opkg
 export FORKOP_UCI_STATE_FILE="$WORK/config.state"
 printf 'forkop.settings=settings\nforkop.settings.dont_touch_dhcp=1\n' > "$FORKOP_UCI_STATE_FILE"
 export FORKOP_INIT="$WORK/bin/no-service"
