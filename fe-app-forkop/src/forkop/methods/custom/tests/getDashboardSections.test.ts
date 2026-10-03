@@ -150,6 +150,66 @@ describe('getDashboardSections', () => {
     mocks.canUseDirectClashApi.mockReturnValue(false);
   });
 
+  it('keeps imported managed selectors visible and separates payload health from ping', async () => {
+    mocks.getConfigSections.mockResolvedValue([proxySection({ urltests: [] })]);
+    mocks.getClashApiProxies.mockResolvedValue({
+      success: true,
+      data: {
+        proxies: {
+          ...clashProxies,
+          'main-out': proxy('Selector', { now: 'best', all: ['best'] }),
+          best: proxy('Selector', {
+            now: 'main-1-out',
+            all: ['main-1-out', 'main-3-out'],
+          }),
+        },
+      },
+    });
+    mocks.fsRead.mockImplementation(async (path: string) =>
+      JSON.stringify(
+        path.endsWith('health-state.json')
+          ? {
+              updatedAt: Date.now() / 1000,
+              groups: { best: { active: 'main-1-out', status: 'verified' } },
+              nodes: {
+                'main-1-out': {
+                  status: 'verified',
+                  latency: 120,
+                  bytes: 32768,
+                },
+                'main-3-out': {
+                  status: 'failed',
+                  reason: 'partial',
+                  bytes: 5503,
+                },
+              },
+            }
+          : {
+              urltestGroups: {
+                best: {
+                  managed: true,
+                  outbounds: ['main-1-out', 'main-3-out'],
+                },
+              },
+            },
+      ),
+    );
+    const result = await getDashboardSections();
+    const best = result.data[0].outbounds.find(
+      (outbound) => outbound.code === 'best',
+    );
+    expect(best?.urlTestInfo?.outbounds).toHaveLength(2);
+    expect(best?.urlTestInfo?.smartSelection?.maxLatency).toBe(300);
+    expect(best?.urlTestInfo?.interruptExistConnections).toBe(false);
+    expect(best?.healthInfo?.status).toBe('verified');
+    expect(best?.latency).toBe(120);
+    expect(
+      best?.urlTestInfo?.outbounds.find(
+        (member) => member.code === 'main-3-out',
+      )?.healthInfo,
+    ).toMatchObject({ status: 'failed', reason: 'partial' });
+  });
+
   it('shows the full selector group by default', async () => {
     mocks.getConfigSections.mockResolvedValue([proxySection()]);
 

@@ -25,6 +25,8 @@ type ClashProxyEntry = {
 
 type DashboardSectionCache = {
   version?: number;
+  realityMLKEMSupported?: boolean;
+  realityNodeCount?: number;
   section?: string;
   links?: Record<string, string>;
   outboundMetadata?: Forkop.GetOutboundMetadata;
@@ -36,6 +38,8 @@ type DashboardSectionCache = {
 };
 
 type UrlTestCacheGroup = {
+  managed?: boolean;
+  maxLatency?: number;
   displayName?: string;
   outbounds?: string[];
   url?: string;
@@ -909,13 +913,18 @@ function buildUrlTestInfo({
   return {
     code,
     displayName: groupCache?.displayName || displayName,
+    smartSelection: groupCache?.managed
+      ? { maxLatency: groupCache.maxLatency || 300 }
+      : undefined,
     selectedCode: selectedCode || undefined,
     selectedName: selectedName || undefined,
     url: groupCache?.url,
     interval: groupCache?.interval,
     tolerance: groupCache?.tolerance,
     idleTimeout: groupCache?.idle_timeout || '30m',
-    interruptExistConnections: groupCache?.interrupt_exist_connections,
+    interruptExistConnections: groupCache?.managed
+      ? false
+      : groupCache?.interrupt_exist_connections,
     outbounds,
   };
 }
@@ -1129,7 +1138,8 @@ function buildProxyGroupOutbounds(
         outboundMetadata,
         cachedProxyLinks.has(code),
       );
-    const isRuntimeUrlTest = isUrlTestProxyEntry(item);
+    const isRuntimeUrlTest =
+      isUrlTestProxyEntry(item) || Boolean(urltestGroups[code]?.managed);
 
     return [
       {
@@ -1361,6 +1371,21 @@ export async function getDashboardSections(
 ): Promise<IGetDashboardSectionsResponse> {
   const includeSubscriptionCopyState =
     options.includeSubscriptionCopyState ?? true;
+  let health: {
+    updatedAt?: number;
+    nodes?: Record<string, Forkop.HealthInfo>;
+    groups?: Record<
+      string,
+      { active?: string; status?: Forkop.HealthInfo['status'] }
+    >;
+  } = {};
+  try {
+    health = JSON.parse(await fs.read('/var/run/forkop/health-state.json'));
+  } catch (_error) {
+    /* Optional runtime state. */
+  }
+  const controllerStale =
+    !health.updatedAt || Date.now() / 1000 - health.updatedAt > 30;
   const configSections = hydrateConfigSections(await getConfigSections());
   const clashProxies = await getClashApiProxies(configSections);
 
@@ -1415,6 +1440,34 @@ export async function getDashboardSections(
               priorityGroups,
               cachedProxyLinks,
             );
+
+          for (const outbound of outbounds as Forkop.Outbound[]) {
+            const managed = urltestGroups[outbound.code]?.managed;
+            const group = health.groups?.[outbound.code];
+            const node = health.nodes?.[group?.active || outbound.code];
+            if (managed || node) {
+              outbound.healthInfo = controllerStale
+                ? { status: 'unavailable', reason: 'controller-unavailable' }
+                : {
+                    ...node,
+                    status: group?.status || node?.status || 'unknown',
+                  };
+              if (node?.latency !== undefined)
+                outbound.latency = node.latencyUnavailable ? 0 : node.latency;
+              if (managed) outbound.type = _('Smart server selection');
+            }
+            for (const member of outbound.urlTestInfo?.outbounds || [])
+              member.healthInfo = controllerStale
+                ? undefined
+                : health.nodes?.[member.code];
+            if (
+              dashboardCache?.realityMLKEMSupported === false &&
+              dashboardCache.realityNodeCount
+            )
+              outbound.compatibilityWarning = _(
+                'This core does not support REALITY ML-KEM. Use a compatible sing-box-extended core.',
+              );
+          }
 
           return {
             withTagSelect: true,

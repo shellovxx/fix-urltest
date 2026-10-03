@@ -93,6 +93,10 @@ restore_pairs="$(lifecycle_ucode selector-restore-pairs-fixture "$WORK_DIR/snaps
   fail "restore pairs should be empty when the selection is already active, got: $restore_pairs"
 
 capture_calls="$(grep -Fc 'let selector_state = capture_selector_state();' "$LIFECYCLE_UC")"
+printf '%s\n' '{"main-out":true}' > "$WORK_DIR/managed.json"
+restore_pairs="$(lifecycle_ucode selector-restore-pairs-fixture "$WORK_DIR/snapshot.json" "$WORK_DIR/after.json" "$WORK_DIR/managed.json" | json_flatten)"
+[ "$restore_pairs" = '[]' ] || fail "selector snapshots must not override the health controller"
+
 [ "$capture_calls" -ge 2 ] ||
   fail "full restart paths should capture selector state before stopping runtime"
 

@@ -23,6 +23,9 @@
         ],
         "/usr/bin/forkop": [
           "exec"
+        ],
+        "/var/run/forkop/health-state.json": [
+          "read"
         ]
       },
       "ubus": {

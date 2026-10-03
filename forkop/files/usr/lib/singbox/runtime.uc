@@ -654,8 +654,11 @@ function log_file_lines(path, level, prefix) {
 }
 
 function sing_box_check(config_path, output_path) {
+    // Keep temporary Go heaps small while the installed core serves traffic.
+    // Compressed binaries still need additional unpacking RAM.
+    let args = [ "env", "GOMEMLIMIT=32MiB", "GOGC=25", "sing-box", "-c", config_path, "check" ];
     let status = command_status(
-        command_from_args([ "sing-box", "-c", config_path, "check" ]) +
+        command_from_args(args) +
         " >" + shell_quote(output_path) + " 2>&1"
     );
     let reason = status == 0 ? "" : first_nonblank_line(output_path);
@@ -766,6 +769,27 @@ function restore_dns_config(backup_path) {
     return command_success_from_args([ "mv", "-f", backup_path, config_path ]);
 }
 
+function supports_reality_mlkem() {
+    let info = fs.stat("/usr/bin/sing-box") || {};
+    let identity = { size: info.size, mtime: info.mtime, inode: info.inode };
+    let cache_path = (getenv("FORKOP_RUNTIME_STATE_DIR") || "/var/run/forkop") + "/reality-capability.json";
+    let cached = common.read_json_file(cache_path);
+    if (cached && sprintf("%J", cached.identity) == sprintf("%J", identity))
+        return cached.supported === true;
+    let path = temp_path(), output = temp_path();
+    if (path == "" || output == "") { remove_files([ path, output ]); return false; }
+    common.write_json_file(path, { outbounds: [{
+        type: "vless", tag: "capability-probe", server: "example.com", server_port: 443,
+        uuid: "00000000-0000-0000-0000-000000000000",
+        tls: { enabled: true, server_name: "example.com", utls: { enabled: true, fingerprint: "chrome" },
+            reality: { enabled: true, public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", support_x25519mlkem768: true } }
+    }] });
+    let supported = sing_box_check(path, output).status == 0;
+    remove_files([ path, output ]);
+    common.write_json_file(cache_path, { identity, supported });
+    return supported;
+}
+
 function init_config(populate_nft, caches_prepared, no_refresh, prepared_deferred_sections) {
     let settings = uci_settings();
     let config_path = option(settings, "config_path", "");
@@ -803,7 +827,8 @@ function init_config(populate_nft, caches_prepared, no_refresh, prepared_deferre
             service_listen_address_value(settings),
             mwan3_active ? "1" : "0",
             sing_box_is_extended(sing_box_version()) ? "1" : "0",
-            deferred_sections
+            deferred_sections,
+            supports_reality_mlkem() ? "1" : "0"
         ]) + " >" + shell_quote(runtime_log) + " 2>&1"
     );
     if (generate_status != 0) {

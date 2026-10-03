@@ -1,4 +1,8 @@
 import {
+  getHealthLabel,
+  getHealthReason,
+} from '../../../helpers/healthPresentation';
+import {
   renderLoaderCircleIcon24,
   renderCopyIcon24,
   renderLinkIcon24,
@@ -408,6 +412,47 @@ function renderDefaultState({
               ]
             : []),
         ]),
+        ...(outbound.healthInfo
+          ? [
+              E(
+                'div',
+                {
+                  class: 'fkp_dashboard-page__health',
+                  title: getHealthReason(outbound.healthInfo),
+                },
+                [
+                  getHealthLabel(outbound.healthInfo),
+                  ...(outbound.healthInfo.reason
+                    ? [
+                        E(
+                          'small',
+                          {},
+                          ` � ${getHealthReason(outbound.healthInfo)}`,
+                        ),
+                      ]
+                    : []),
+                  ...(outbound.healthInfo.checkedAt
+                    ? [
+                        E(
+                          'small',
+                          {},
+                          ` � ${new Date(outbound.healthInfo.checkedAt * 1000).toLocaleTimeString()}`,
+                        ),
+                      ]
+                    : []),
+                ],
+              ),
+            ]
+          : []),
+        ...(outbound.compatibilityWarning
+          ? [
+              E(
+                'small',
+                { class: 'alert-message warning' },
+                outbound.compatibilityWarning,
+              ),
+            ]
+          : []),
         E('div', { class: 'fkp_dashboard-page__outbound-grid__item__footer' }, [
           E(
             'div',

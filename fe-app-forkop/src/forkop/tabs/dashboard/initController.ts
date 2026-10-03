@@ -1,4 +1,8 @@
 import {
+  getHealthLabel,
+  getHealthReason,
+} from '../../helpers/healthPresentation';
+import {
   getClashWsUrl,
   isCopyableProxyLink,
   onMount,
@@ -899,10 +903,22 @@ function renderUrlTestInfoModal(outbound: Forkop.Outbound) {
       label: _('Selected'),
       children: [renderUrlTestSelectedValue(info)],
     },
-    { label: _('Testing URL'), children: [renderDetailsUrl(info.url)] },
-    { label: _('Interval'), value: info.interval },
-    { label: _('Tolerance'), value: info.tolerance },
-    { label: _('Idle timeout'), value: info.idleTimeout },
+    ...(info.smartSelection
+      ? [
+          { label: _('Active server check interval'), value: '15 s' },
+          { label: _('Other servers check interval'), value: '3 min' },
+          {
+            label: _('Maximum acceptable latency'),
+            value: `${info.smartSelection.maxLatency} ms`,
+          },
+          { label: _('Full download check'), value: '32 KiB' },
+        ]
+      : [
+          { label: _('Testing URL'), children: [renderDetailsUrl(info.url)] },
+          { label: _('Interval'), value: info.interval },
+          { label: _('Tolerance'), value: info.tolerance },
+          { label: _('Idle timeout'), value: info.idleTimeout },
+        ]),
     {
       label: _('Interrupt connections'),
       value: info.interruptExistConnections,
@@ -978,8 +994,29 @@ function renderUrlTestInfoModal(outbound: Forkop.Outbound) {
                       E(
                         'span',
                         { class: getUrlTestLatencyClass(member.latency) },
-                        formatUrlTestLatency(member.latency),
+                        formatUrlTestLatency(
+                          member.healthInfo?.latencyUnavailable
+                            ? 0
+                            : (member.healthInfo?.latency ?? member.latency),
+                        ),
                       ),
+                      ...(member.healthInfo
+                        ? [
+                            E(
+                              'span',
+                              { title: getHealthReason(member.healthInfo) },
+                              [
+                                getHealthLabel(member.healthInfo),
+                                member.healthInfo.reason
+                                  ? ` � ${getHealthReason(member.healthInfo)}`
+                                  : '',
+                                member.healthInfo.checkedAt
+                                  ? ` � ${new Date(member.healthInfo.checkedAt * 1000).toLocaleTimeString()}`
+                                  : '',
+                              ],
+                            ),
+                          ]
+                        : []),
                     ],
                   ),
                   member.canCopyLink

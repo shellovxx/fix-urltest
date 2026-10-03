@@ -608,6 +608,9 @@ function add_tls(url, security, default_tls) {
             tls.reality.short_id = short_id;
     }
 
+    let mlkem = query["support-x25519mlkem768"] ?? query.support_x25519mlkem768;
+    if (tls.reality && mlkem != null)
+        tls.reality.support_x25519mlkem768 = is_true(mlkem);
     return [tls, true];
 }
 
@@ -1360,6 +1363,8 @@ function add_clash_tls(outbound, options) {
             fingerprint: options.fingerprint != "" ? options.fingerprint : "chrome"
         };
         tls.reality = { enabled: true, public_key: options.reality_public_key };
+        if (options.reality_mlkem != null)
+            tls.reality.support_x25519mlkem768 = is_true(options.reality_mlkem);
         if (options.reality_short_id != "")
             tls.reality.short_id = options.reality_short_id;
     }
@@ -1406,6 +1411,7 @@ function parse_clash_record(record) {
         grpc_service_name: as_string(record["grpc-opts.grpc-service-name"]),
         reality_public_key: as_string(record["reality-opts.public-key"]),
         reality_short_id: as_string(record["reality-opts.short-id"]),
+        reality_mlkem: record["reality-opts.support-x25519mlkem768"] ?? record["reality-opts.support_x25519mlkem768"],
         alpn: normalized_clash_alpn(record.alpn || ""),
         fingerprint: normalize_utls_fingerprint(as_string(record["client-fingerprint"] || record.fingerprint))
     };

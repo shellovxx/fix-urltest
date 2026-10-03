@@ -869,6 +869,36 @@ function renderFlagEmojis(value) {
   );
 }
 
+// src/forkop/helpers/healthPresentation.ts
+function getHealthLabel(health) {
+  if (health.checking) return _("Checking transfer");
+  switch (health.status) {
+    case "verified":
+      return _("Transfer verified");
+    case "failed":
+      return _("Transfer check failed");
+    case "unavailable":
+      return _("No verified server available");
+    default:
+      return _("Awaiting transfer check");
+  }
+}
+function getHealthReason(health) {
+  if (!health.reason) return "";
+  if (health.reason.startsWith("http-"))
+    return `HTTP ${health.reason.slice(5)}`;
+  if (health.reason === "timeout" || health.reason === "probe-timeout")
+    return health.bytes ? _("Transfer stalled before completion") : _("Transfer timed out");
+  if (health.reason === "partial") return _("Incomplete payload");
+  if (health.reason === "tls") return _("TLS verification failed");
+  if (health.reason === "connection") return _("Proxy connection failed");
+  if (health.reason === "latency-unavailable")
+    return _("Short latency test failed");
+  if (health.reason === "controller-unavailable")
+    return _("Selection controller is unavailable");
+  return _("Transfer probe is unavailable");
+}
+
 // src/helpers/downloadAsTxt.ts
 function downloadAsTxt(text, filename) {
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
@@ -2059,6 +2089,39 @@ function renderDefaultState({
             )
           ] : []
         ]),
+        ...outbound.healthInfo ? [
+          E(
+            "div",
+            {
+              class: "fkp_dashboard-page__health",
+              title: getHealthReason(outbound.healthInfo)
+            },
+            [
+              getHealthLabel(outbound.healthInfo),
+              ...outbound.healthInfo.reason ? [
+                E(
+                  "small",
+                  {},
+                  ` \uFFFD ${getHealthReason(outbound.healthInfo)}`
+                )
+              ] : [],
+              ...outbound.healthInfo.checkedAt ? [
+                E(
+                  "small",
+                  {},
+                  ` \uFFFD ${new Date(outbound.healthInfo.checkedAt * 1e3).toLocaleTimeString()}`
+                )
+              ] : []
+            ]
+          )
+        ] : [],
+        ...outbound.compatibilityWarning ? [
+          E(
+            "small",
+            { class: "alert-message warning" },
+            outbound.compatibilityWarning
+          )
+        ] : [],
         E("div", { class: "fkp_dashboard-page__outbound-grid__item__footer" }, [
           E(
             "div",
@@ -3616,13 +3679,14 @@ function buildUrlTestInfo({
   return {
     code,
     displayName: groupCache?.displayName || displayName,
+    smartSelection: groupCache?.managed ? { maxLatency: groupCache.maxLatency || 300 } : void 0,
     selectedCode: selectedCode || void 0,
     selectedName: selectedName || void 0,
     url: groupCache?.url,
     interval: groupCache?.interval,
     tolerance: groupCache?.tolerance,
     idleTimeout: groupCache?.idle_timeout || "30m",
-    interruptExistConnections: groupCache?.interrupt_exist_connections,
+    interruptExistConnections: groupCache?.managed ? false : groupCache?.interrupt_exist_connections,
     outbounds
   };
 }
@@ -3769,7 +3833,7 @@ function buildProxyGroupOutbounds(section, proxies, outboundMetadata, urltestGro
       outboundMetadata,
       cachedProxyLinks.has(code)
     );
-    const isRuntimeUrlTest = isUrlTestProxyEntry(item);
+    const isRuntimeUrlTest = isUrlTestProxyEntry(item) || Boolean(urltestGroups[code]?.managed);
     return [
       {
         code,
@@ -3913,6 +3977,12 @@ function getCachedProxyLinks(dashboardCache) {
 }
 async function getDashboardSections(options = {}) {
   const includeSubscriptionCopyState = options.includeSubscriptionCopyState ?? true;
+  let health = {};
+  try {
+    health = JSON.parse(await fs.read("/var/run/forkop/health-state.json"));
+  } catch (_error) {
+  }
+  const controllerStale = !health.updatedAt || Date.now() / 1e3 - health.updatedAt > 30;
   const configSections = hydrateConfigSections(await getConfigSections());
   const clashProxies = await getClashApiProxies(configSections);
   if (!clashProxies.success || !clashProxies.data?.proxies) {
@@ -3956,6 +4026,26 @@ async function getDashboardSections(options = {}) {
           priorityGroups,
           cachedProxyLinks
         );
+        for (const outbound of outbounds) {
+          const managed = urltestGroups[outbound.code]?.managed;
+          const group = health.groups?.[outbound.code];
+          const node = health.nodes?.[group?.active || outbound.code];
+          if (managed || node) {
+            outbound.healthInfo = controllerStale ? { status: "unavailable", reason: "controller-unavailable" } : {
+              ...node,
+              status: group?.status || node?.status || "unknown"
+            };
+            if (node?.latency !== void 0)
+              outbound.latency = node.latencyUnavailable ? 0 : node.latency;
+            if (managed) outbound.type = _("Smart server selection");
+          }
+          for (const member of outbound.urlTestInfo?.outbounds || [])
+            member.healthInfo = controllerStale ? void 0 : health.nodes?.[member.code];
+          if (dashboardCache?.realityMLKEMSupported === false && dashboardCache.realityNodeCount)
+            outbound.compatibilityWarning = _(
+              "This core does not support REALITY ML-KEM. Use a compatible sing-box-extended core."
+            );
+        }
         return {
           withTagSelect: true,
           code: selector?.code || sectionName,
@@ -6092,10 +6182,20 @@ function renderUrlTestInfoModal(outbound) {
       label: _("Selected"),
       children: [renderUrlTestSelectedValue(info)]
     },
-    { label: _("Testing URL"), children: [renderDetailsUrl(info.url)] },
-    { label: _("Interval"), value: info.interval },
-    { label: _("Tolerance"), value: info.tolerance },
-    { label: _("Idle timeout"), value: info.idleTimeout },
+    ...info.smartSelection ? [
+      { label: _("Active server check interval"), value: "15 s" },
+      { label: _("Other servers check interval"), value: "3 min" },
+      {
+        label: _("Maximum acceptable latency"),
+        value: `${info.smartSelection.maxLatency} ms`
+      },
+      { label: _("Full download check"), value: "32 KiB" }
+    ] : [
+      { label: _("Testing URL"), children: [renderDetailsUrl(info.url)] },
+      { label: _("Interval"), value: info.interval },
+      { label: _("Tolerance"), value: info.tolerance },
+      { label: _("Idle timeout"), value: info.idleTimeout }
+    ],
     {
       label: _("Interrupt connections"),
       value: info.interruptExistConnections
@@ -6162,8 +6262,21 @@ function renderUrlTestInfoModal(outbound) {
                   E(
                     "span",
                     { class: getUrlTestLatencyClass(member.latency) },
-                    formatUrlTestLatency(member.latency)
-                  )
+                    formatUrlTestLatency(
+                      member.healthInfo?.latencyUnavailable ? 0 : member.healthInfo?.latency ?? member.latency
+                    )
+                  ),
+                  ...member.healthInfo ? [
+                    E(
+                      "span",
+                      { title: getHealthReason(member.healthInfo) },
+                      [
+                        getHealthLabel(member.healthInfo),
+                        member.healthInfo.reason ? ` \uFFFD ${getHealthReason(member.healthInfo)}` : "",
+                        member.healthInfo.checkedAt ? ` \uFFFD ${new Date(member.healthInfo.checkedAt * 1e3).toLocaleTimeString()}` : ""
+                      ]
+                    )
+                  ] : []
                 ]
               ),
               member.canCopyLink ? renderUrlTestCopyButton(_("Copy proxy link"), (event) => {

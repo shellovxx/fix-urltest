@@ -3307,3 +3307,70 @@ msgstr ""
 #: src/forkop/tabs/diagnostic/checks/runZapret2Check.ts:107
 msgid "Zapret2 sing-box outbound is not configured"
 msgstr ""
+
+msgid "Smart server selection"
+msgstr ""
+
+msgid "Active server check interval"
+msgstr ""
+
+msgid "Other servers check interval"
+msgstr ""
+
+msgid "Maximum acceptable latency"
+msgstr ""
+
+msgid "Full download check"
+msgstr ""
+
+
+msgid "Checks complete HTTPS transfers before choosing a server. Holds a healthy server within the latency limit. Never falls back to a direct connection."
+msgstr ""
+
+msgid "Acceptable latency (ms)"
+msgstr ""
+
+msgid "Measured by the short URLTest, separately from payload transfer time. Default: 300 ms."
+msgstr ""
+
+msgid "Checking transfer"
+msgstr ""
+
+msgid "Transfer verified"
+msgstr ""
+
+msgid "Transfer check failed"
+msgstr ""
+
+msgid "No verified server available"
+msgstr ""
+
+msgid "Awaiting transfer check"
+msgstr ""
+
+msgid "This core does not support REALITY ML-KEM. Use a compatible sing-box-extended core."
+msgstr ""
+
+msgid "Transfer stalled before completion"
+msgstr ""
+
+msgid "Transfer timed out"
+msgstr ""
+
+msgid "Incomplete payload"
+msgstr ""
+
+msgid "TLS verification failed"
+msgstr ""
+
+msgid "Proxy connection failed"
+msgstr ""
+
+msgid "Short latency test failed"
+msgstr ""
+
+msgid "Selection controller is unavailable"
+msgstr ""
+
+msgid "Transfer probe is unavailable"
+msgstr ""

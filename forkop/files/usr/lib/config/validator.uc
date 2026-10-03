@@ -1448,6 +1448,12 @@ function validate_rule(section, sections, context) {
 
     if (connections.is_connections_action(action)) {
         validate_dashboard_filter(section);
+        let smart = option(section, "health_selection_enabled", "0");
+        if (smart != "0" && smart != "1")
+            fail_validation("Invalid smart selection flag in rule '" + name + "'. Aborted.");
+        let limit = option(section, "health_max_latency", "300");
+        if (smart == "1" && (!match(limit, /^[0-9]+$/) || int(limit) < 1 || int(limit) > 5000))
+            fail_validation("Smart selection latency must be between 1 and 5000 ms in rule '" + name + "'. Aborted.");
 
         for (let urltest_id in connections.urltests(section)) {
             validate_urltest_identifier_value(urltest_id, name);

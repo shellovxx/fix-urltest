@@ -7506,6 +7506,24 @@ function createSectionContent(section) {
   };
 
   o = section.taboption(
+    "settings", form.Flag, "health_selection_enabled", _("Smart server selection"),
+    _("Checks complete HTTPS transfers before choosing a server. Holds a healthy server within the latency limit. Never falls back to a direct connection."),
+  );
+  o.default = "0";
+  o.rmempty = false;
+  o.depends("action", "connection");
+  o.modalonly = true;
+
+  o = section.taboption(
+    "settings", form.Value, "health_max_latency", _("Acceptable latency (ms)"),
+    _("Measured by the short URLTest, separately from payload transfer time. Default: 300 ms."),
+  );
+  o.default = "300";
+  o.datatype = "range(1,5000)";
+  o.depends({ action: "connection", health_selection_enabled: "1" });
+  o.modalonly = true;
+
+  o = section.taboption(
     "settings",
     form.Flag,
     "sort_by_latency",

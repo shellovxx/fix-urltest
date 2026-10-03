@@ -102,6 +102,16 @@ export namespace Forkop {
     CLOSE_ALL_CONNECTIONS = 'close_all_connections',
   }
 
+  export interface HealthInfo {
+    status: 'unknown' | 'verified' | 'failed' | 'checking' | 'unavailable';
+    checking?: boolean;
+    reason?: string;
+    checkedAt?: number;
+    latency?: number;
+    latencyUnavailable?: boolean;
+    bytes?: number;
+  }
+
   export interface Outbound {
     code: string;
     displayName: string;
@@ -112,11 +122,14 @@ export namespace Forkop {
     canCopyLink?: boolean;
     country?: string;
     runtimeAvailable?: boolean;
+    healthInfo?: HealthInfo;
+    compatibilityWarning?: string;
     urlTestInfo?: UrlTestInfo;
     priorityInfo?: PriorityInfo;
   }
 
   export interface UrlTestMember {
+    healthInfo?: HealthInfo;
     code: string;
     displayName: string;
     latency: number;
@@ -128,6 +141,7 @@ export namespace Forkop {
   }
 
   export interface UrlTestInfo {
+    smartSelection?: { maxLatency: number };
     code: string;
     displayName: string;
     selectedCode?: string;

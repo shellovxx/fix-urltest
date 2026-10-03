@@ -2,6 +2,7 @@
 
 let fs = require("fs");
 let common = require("core.common");
+let url = require("core.url");
 
 let as_string = common.as_string;
 let array_or_empty = common.array_or_empty;
@@ -125,6 +126,8 @@ function add_tls_query(params, outbound, trojan_default_tls) {
         add_query(params, "security", "reality");
         add_query(params, "pbk", reality.public_key);
         add_query(params, "sid", reality.short_id);
+        if (reality.support_x25519mlkem768 != null)
+            add_query(params, "support-x25519mlkem768", reality.support_x25519mlkem768 ? "1" : "0");
     }
     else {
         add_query(params, "security", "tls");
@@ -406,7 +409,23 @@ function populate_subscription_dir(path) {
     return ok;
 }
 
+function with_reality_mlkem(link, outbound, display_name) {
+    // Preserve the original URI's name and provider-specific parameters.
+    let scheme = lc(url.scheme(link));
+    if (scheme == "vless" || scheme == "trojan") {
+        let query = url.query_params(link);
+        if (query["support-x25519mlkem768"] != null || query.support_x25519mlkem768 != null)
+            return link;
+        let hash = index(link, "#");
+        let base = hash >= 0 ? substr(link, 0, hash) : link;
+        return base + (index(base, "?") >= 0 ? "&" : "?") + "support-x25519mlkem768=" +
+            (outbound.tls.reality.support_x25519mlkem768 ? "1" : "0") + (hash >= 0 ? substr(link, hash) : "");
+    }
+    return serialize_outbound_link({ ...outbound, tag: display_name || outbound.tag });
+}
+
 return {
+    with_reality_mlkem,
     serialize_outbound_link,
     is_copyable_link,
     populate_subscription_links,

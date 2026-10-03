@@ -21,6 +21,9 @@ let fixture_uci_data = null;
 let runtime_settings_cache = null;
 let runtime_ruleset_folder = runtime_constants.TMP_RULESET_FOLDER;
 let runtime_supports_xhttp = true;
+let runtime_supports_mlkem = false;
+let runtime_health_states = [];
+let health_config = require("singbox.health_config");
 
 let as_string = common.as_string;
 let read_json_file = common.read_json_file;
@@ -1677,6 +1680,9 @@ function apply_link_tls(outbound, scheme, query) {
             short_id: as_string(query.sid || "")
         };
     }
+    let mlkem = query["support-x25519mlkem768"] ?? query.support_x25519mlkem768;
+    if (tls.reality && mlkem != null)
+        tls.reality.support_x25519mlkem768 = cli_bool(mlkem);
     outbound.tls = tls;
 }
 
@@ -2239,6 +2245,17 @@ function add_connections_outbound(config, section, taken) {
 
     state.urltestCandidateTags = unique_string_array(urltest_candidate_tags);
     add_proxy_selector(config, section, selector_tags, urltest_candidate_tags, state);
+    health_config.apply_reality(config, runtime_supports_mlkem);
+    state.realityMLKEMSupported = runtime_supports_mlkem;
+    state.realityNodeCount = length(filter(slice(config.outbounds, cascade_start), (item) => item.tls?.reality?.enabled));
+    if (runtime_supports_mlkem)
+        for (let outbound in config.outbounds)
+            if (outbound.tls?.reality && state.links[outbound.tag]) {
+                let link = subscription_share_link.with_reality_mlkem(state.links[outbound.tag], outbound, state.outboundMetadata.names[outbound.tag]);
+                if (link) state.links[outbound.tag] = link;
+            }
+    health_config.configure(config, section, state, cascade_start);
+    if (state.healthNodes) push(runtime_health_states, state);
     if (!atomic_write_json_file(runtime_subscription.section_cache_path(section_name), state))
         runtime_generate_unsupported("failed to write section cache for " + section_name);
 }
@@ -3005,7 +3022,8 @@ function add_server_routes(config, servers, sections) {
     }
 }
 
-function generate_config(output_path, service_address, mwan3_active, supports_xhttp, deferred_sections) {
+function generate_config(output_path, service_address, mwan3_active, supports_xhttp, deferred_sections, supports_mlkem) {
+    runtime_supports_mlkem = cli_bool(supports_mlkem);
     runtime_supports_xhttp = supports_xhttp == null || as_string(supports_xhttp) == ""
         ? true
         : cli_bool(supports_xhttp);
@@ -3040,19 +3058,27 @@ function generate_config(output_path, service_address, mwan3_active, supports_xh
     for (let section in sections)
         add_mixed_proxy_for_section(config, section, service_address);
 
+    health_config.apply_reality(config, runtime_supports_mlkem);
     assert_unique_outbound_tags(config);
+    health_config.finalize_probe(config);
     strip_internal_fields(config);
+    // Resolve detours after every section has been generated, including forward references.
+    for (let state in runtime_health_states) {
+        health_config.refresh_fingerprints(config, state);
+        if (!atomic_write_json_file(runtime_subscription.section_cache_path(state.section), state))
+            runtime_generate_unsupported("failed to finalize smart selection cache");
+    }
     if (!write_json_file(output_path, config)) {
         warn("failed to write ", output_path, "\n");
         exit(1);
     }
 }
 
-function generate_config_fixture(fixture_path, output_path, service_address, mwan3_active, supports_xhttp, deferred_sections) {
+function generate_config_fixture(fixture_path, output_path, service_address, mwan3_active, supports_xhttp, deferred_sections, supports_mlkem) {
     use_fixture_cursor(fixture_path);
     runtime_subscription.set_section_cache_dir(output_path + ".section-cache");
     runtime_ruleset_folder = output_path + ".rulesets";
-    generate_config(output_path, service_address, mwan3_active, supports_xhttp, deferred_sections);
+    generate_config(output_path, service_address, mwan3_active, supports_xhttp, deferred_sections, supports_mlkem);
 }
 
 function stdin_length() {
@@ -3166,9 +3192,9 @@ function object_nonempty_stdin() {
 let mode = ARGV[0] || "";
 
 if (mode == "generate-config")
-    generate_config(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5] || "");
+    generate_config(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5] || "", ARGV[6] || "0");
 else if (mode == "generate-config-fixture")
-    generate_config_fixture(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6] || "");
+    generate_config_fixture(ARGV[1], ARGV[2], ARGV[3], ARGV[4], ARGV[5], ARGV[6] || "", ARGV[7] || "0");
 else if (mode == "stdin-length")
     stdin_length();
 else if (mode == "stdin-contains")

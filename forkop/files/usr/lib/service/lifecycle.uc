@@ -99,6 +99,7 @@ const SERVER_UC = LIB_DIR + "/server/service.uc";
 const NFT_UC = LIB_DIR + "/nft/apply.uc";
 const SINGBOX_UC = LIB_DIR + "/singbox/runtime.uc";
 const PRIORITY_UC = LIB_DIR + "/singbox/priority.uc";
+const HEALTH_UC = LIB_DIR + "/singbox/health.uc";
 const DNS_FAILOVER_UC = LIB_DIR + "/singbox/dns_failover.uc";
 const SUBSCRIPTION_CACHE_UC = LIB_DIR + "/subscription/cache.uc";
 const UPDATES_UC = LIB_DIR + "/components/updates.uc";
@@ -379,12 +380,14 @@ function selector_state_from_proxies_payload(payload) {
     return result;
 }
 
-function selector_restore_pairs(snapshot, payload) {
+function selector_restore_pairs(snapshot, payload, managed) {
     let result = [];
     snapshot = object_or_empty(snapshot);
     let proxies = object_or_empty(object_or_empty(payload).proxies);
 
     for (let group, selected in snapshot) {
+        if (managed?.[group])
+            continue;
         group = as_string(group);
         selected = as_string(selected);
 
@@ -429,7 +432,10 @@ function capture_selector_state() {
 }
 
 function restore_selector_state(snapshot) {
-    let pairs = selector_restore_pairs(snapshot, clash_api_json("get_proxies"));
+    let managed = {};
+    for (let path in fs.glob(SECTION_CACHE_DIR + "/*.json"))
+        for (let tag in read_json_file(path)?.healthGroups || {}) managed[tag] = true;
+    let pairs = selector_restore_pairs(snapshot, clash_api_json("get_proxies"), managed);
 
     for (let pair in pairs)
         module_success(DIAGNOSTICS_UC, [ "clash-api", "set_group_proxy", pair.group, pair.proxy, "" ]);
@@ -734,6 +740,8 @@ function start_main() {
         return status;
     }
 
+    status = module_status(HEALTH_UC, [ "start-runtime" ]);
+    if (status != 0) return status;
     status = module_status(PRIORITY_UC, [ "start-runtime" ]);
     if (status != 0) {
         log_message("Failed to start Priority runtime. Aborted.", "fatal");
@@ -799,6 +807,7 @@ function stop_main() {
 
     log_message("Stopping Forkop", "info");
     module_success(DNS_FAILOVER_UC, [ "stop-runtime" ]);
+    module_success(HEALTH_UC, [ "stop-runtime" ]);
     module_success(PRIORITY_UC, [ "stop-runtime" ]);
     module_success(SUBSCRIPTION_CACHE_UC, [ "stop-deferred-bootstrap-worker" ]);
     module_success(UPDATES_UC, [ "stop-list-update" ]);
@@ -1215,6 +1224,7 @@ function reload(reason) {
 
     if (plan.needs_sing_box_reload == 1) {
         module_success(DNS_FAILOVER_UC, [ "stop-runtime" ]);
+        module_success(HEALTH_UC, [ "stop-runtime" ]);
         module_success(PRIORITY_UC, [ "stop-runtime" ]);
         status = module_status(SINGBOX_UC, [ "configure-service" ]);
         if (status != 0)
@@ -1247,6 +1257,12 @@ function reload(reason) {
         ]);
         if (status != 0) {
             log_message("Reload verification failed after sing-box was reloaded; stopping Forkop runtime", "fatal");
+            cleanup_failed_runtime();
+            return status;
+        }
+        status = module_status(HEALTH_UC, [ "start-runtime" ]);
+        if (status != 0) {
+            log_message("Failed to start Smart selection runtime after reload", "fatal");
             cleanup_failed_runtime();
             return status;
         }
@@ -1440,7 +1456,7 @@ else if (mode == "selector-state-from-proxies-fixture") {
     status = 0;
 }
 else if (mode == "selector-restore-pairs-fixture") {
-    write_json(selector_restore_pairs(read_json_file(ARGV[1]), read_json_file(ARGV[2])));
+    write_json(selector_restore_pairs(read_json_file(ARGV[1]), read_json_file(ARGV[2]), ARGV[3] ? read_json_file(ARGV[3]) : {}));
     status = 0;
 }
 else if (mode == "dnsmasq-restore" || mode == "restore-dnsmasq")
