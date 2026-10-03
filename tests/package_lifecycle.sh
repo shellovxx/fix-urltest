@@ -188,3 +188,28 @@ FORKOP_RT_TABLES="$WORK_DIR/rt_tables_upgrade" \
   fail "package pre-upgrade must not mark an already stopped service"
 
 printf 'package lifecycle checks passed\n'
+cat >"$WORK_DIR/managed-sing-box-init" <<'SH'
+#!/bin/sh
+# Forkop managed sing-box service for binary variants
+exit 0
+SH
+chmod +x "$WORK_DIR/managed-sing-box-init"
+touch "$WORK_DIR/managed-core" "$WORK_DIR/managed-cronet"
+for action in upgrade remove; do
+  FORKOP_UCI_STATE_FILE="$WORK_DIR/dont-touch.state" \
+  FORKOP_INIT="$WORK_DIR/upgrade-init" \
+  FORKOP_SING_BOX_INIT="$WORK_DIR/managed-sing-box-init" \
+  FORKOP_SING_BOX_BIN="$WORK_DIR/managed-core" \
+  FORKOP_SING_BOX_CRONET="$WORK_DIR/managed-cronet" \
+  FORKOP_RT_TABLES="$WORK_DIR/rt_tables_upgrade" \
+    ucode -L "$FORKOP_LIB" "$PACKAGE_UC" prerm "$action"
+  if [ "$action" = upgrade ]; then
+    if ! { [ -f "$WORK_DIR/managed-core" ] && [ -f "$WORK_DIR/managed-sing-box-init" ] && [ -f "$WORK_DIR/managed-cronet" ]; }; then
+      fail 'backend upgrade deleted the managed core'
+    fi
+  else
+    if ! { [ ! -e "$WORK_DIR/managed-core" ] && [ ! -e "$WORK_DIR/managed-sing-box-init" ] && [ ! -e "$WORK_DIR/managed-cronet" ]; }; then
+      fail 'uninstall did not clean up the managed core'
+    fi
+  fi
+done
