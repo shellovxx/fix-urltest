@@ -36,11 +36,19 @@ function encode(value) {
     }
     return result;
 }
-function current_config() {
+function config_path() {
     if (getenv("FORKOP_HEALTH_CONFIG_PATH"))
-        return common.read_json_file(getenv("FORKOP_HEALTH_CONFIG_PATH")) || {};
+        return getenv("FORKOP_HEALTH_CONFIG_PATH");
     let path = trim(capture([ "uci", "-q", "get", "forkop.settings.config_path" ]).output);
-    return common.read_json_file(path || "/etc/sing-box/config.json") || {};
+    return path || "/etc/sing-box/config.json";
+}
+function current_config() { return common.read_json_file(config_path()) || {}; }
+function configuration_signature() {
+    let paths = [ config_path(), ...fs.glob((getenv("FORKOP_SECTION_CACHE_DIR") || DIR + "/section-cache") + "/*.json") ];
+    return sprintf("%J", map(paths, (path) => {
+        let stat = fs.stat(path) || {};
+        return [ path, stat.inode, stat.size, stat.mtime, stat.ctime ];
+    }));
 }
 function api(config, method, path, body) {
     let clash = config.experimental?.clash_api || {};
@@ -128,6 +136,14 @@ function close_failed(config, group, old) {
 function log_switch(group, tag, reason) {
     capture([ "logger", "-t", "forkop", "health: " + group + " -> " + tag + " (" + reason + ")" ]);
 }
+function log_error(group, reason, now) {
+    if (group.lastLoggedError != reason || now >= (group.errorLoggedAt || 0) + 60) {
+        capture([ "logger", "-t", "forkop", "health: " + group.tag + ": " + reason ]);
+        group.errorLoggedAt = now;
+        group.lastLoggedError = reason;
+    }
+    group.controllerError = reason;
+}
 function restore_node(previous, node) {
     if (previous?.fingerprint != node.fingerprint)
         return { ...node, samples: [], status: "unknown", failures: 0, checkedAt: 0 };
@@ -136,9 +152,16 @@ function restore_node(previous, node) {
 function running(pid) {
     return pid && match("" + pid, /^[0-9]+$/) && capture([ "kill", "-0", "" + pid ]).status == 0;
 }
-function worker() {
+function cancel_job(job) {
+    if (running(job.pid)) capture([ "/bin/kill", "-TERM", "-" + job.pid ]);
+    fs.unlink(job.path);
+    fs.unlink(job.path + ".pid");
+}
+// Never reuse result paths while terminated probes may still be exiting.
+let sequence = 0;
+function worker_cycle(generation) {
+    let signature = configuration_signature();
     let desired = plan();
-    if (!length(desired.groups)) return 0;
     let config = current_config(), previous = common.read_json_file(STATE) || {};
     let state = { version: 1, nodes: {}, groups: {}, updatedAt: time() };
     for (let tag, node in desired.nodes) state.nodes[tag] = restore_node(previous.nodes?.[tag], node);
@@ -151,10 +174,36 @@ function worker() {
         state.groups[tag] = { ...group, active, initialized, startup: !initialized,
             highCycles: saved.active == active ? saved.highCycles || 0 : 0, nextActiveCheck: time(), pending: null };
     }
-    let jobs = {}, next = {}, sequence = 0;
+    let jobs = {}, next = {}, refreshAt = time() + 5;
     for (let tag in state.nodes) next[tag] = (state.nodes[tag].checkedAt || 0) + 180;
     while (true) {
         let now = time();
+        if (now >= refreshAt) {
+            refreshAt = now + 5;
+            if (signature != configuration_signature()) {
+                for (let tag, job in jobs) cancel_job(job);
+                capture([ "logger", "-t", "forkop", "health: configuration changed; refreshing managed groups" ]);
+                return 1;
+            }
+            let current = api(config, "GET", "/proxies")?.proxies;
+            for (let tag, group in state.groups) {
+                let active = current?.[tag]?.now;
+                if (active == null) {
+                    log_error(group, current == null ? "Clash API unavailable" : "managed selector missing from Clash API", now);
+                    continue;
+                }
+                group.controllerError = "";
+                if (active != group.active) {
+                    group.active = active;
+                    group.initialized = false;
+                    group.startup = true;
+                    group.highCycles = 0;
+                    group.nextActiveCheck = now;
+                    group.pending = null;
+                    group.nextSwitchAttempt = 0;
+                }
+            }
+        }
         for (let tag, job in jobs) {
             let result = common.read_json_file(job.path);
             if (!result && now - job.started <= 18 && running(job.pid)) continue;
@@ -176,7 +225,7 @@ function worker() {
                 }
                 if (group.pending?.tag == tag) {
                     let selected = policy.decision(group, state.nodes, now);
-                    if (result.ok && selected?.tag == tag) {
+                    if (result.ok && selected?.tag == tag && !group.controllerError) {
                         let old = group.active;
                         if (api(config, "PUT", "/proxies/" + encode(group_tag), { name: tag }) != null) {
                             group.active = tag;
@@ -188,6 +237,10 @@ function worker() {
                             log_switch(group_tag, tag, selected.reason);
                             if (selected.reason == "failure") close_failed(config, group_tag, old);
                         }
+                        else {
+                            log_error(group, "selector switch failed; retrying", now);
+                            group.nextSwitchAttempt = now + 5;
+                        }
                     }
                     group.pending = null;
                 }
@@ -195,15 +248,19 @@ function worker() {
         }
         let urgent = [];
         for (let group_tag, group in state.groups) {
+            if (group.controllerError) {
+                group.status = "unavailable";
+                continue;
+            }
             let selected = policy.decision(group, state.nodes, now);
             if (selected && selected.tag == group.active) group.initialized = true;
-            else if (selected && !group.pending) {
+            else if (selected && !group.pending && now >= (group.nextSwitchAttempt || 0)) {
                 // Always repeat the backup's payload test before changing selection.
                 group.pending = selected;
             }
             if (group.startup && !group.pending && group.initialized &&
                 !length(filter(group.outbounds, (tag) => !state.nodes[tag]?.checkedAt))) group.startup = false;
-            if (group.active && now >= group.nextActiveCheck) push(urgent, group.active);
+            if (state.nodes[group.active] && now >= group.nextActiveCheck) push(urgent, group.active);
             if (group.pending) push(urgent, group.pending.tag);
             group.status = state.nodes[group.active]?.status == "verified" && group.initialized ? "verified" :
                 policy.candidates(group, state.nodes, now)[0] ? "checking" : "unavailable";
@@ -214,7 +271,7 @@ function worker() {
             if (jobs[tag]) continue;
             let urgent_node = index(urgent, tag) >= 0;
             if (!urgent_node && (now < next[tag] || now < (state.nodes[tag].quarantineUntil || 0))) continue;
-            let path = JOBS + "/" + (++sequence) + ".json";
+            let path = JOBS + "/" + generation + "-" + (++sequence) + ".json";
             let status = system(command([ "setsid", "ucode", "-L", LIB, SELF, "probe", tag, path ]) +
                 " >/dev/null 2>&1 1000>&- & echo $! >" + quote(path + ".pid"));
             let pid = int(trim(fs.readfile(path + ".pid") || "0"));
@@ -227,6 +284,12 @@ function worker() {
         atomic(STATE, state);
         system("sleep 1");
     }
+}
+function worker() {
+    let generation = trim(fs.readfile("/proc/sys/kernel/random/uuid") || "");
+    if (length(generation) < 32) die("Cannot isolate smart selection probe results\n");
+    while (worker_cycle(generation) == 1) {}
+    return 0;
 }
 function stop() {
     let pid = trim(fs.readfile(PID) || "");

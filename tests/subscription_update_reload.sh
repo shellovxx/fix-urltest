@@ -36,6 +36,12 @@ function shell_quote(value) {
 }
 
 function record(line) {
+    if (line == (getenv("FAKE_FAIL_CALL") || "")) {
+        let path = getenv("FAKE_CALL_LOG") || "";
+        let log = fs.open(path, "a");
+        if (log) { log.write(line + "\n"); log.close(); }
+        exit(1);
+    }
     let path = getenv("FAKE_CALL_LOG") || "";
     if (path != "")
         system("printf '"'"'%s\\n'"'"' " + shell_quote(line) + " >> " + shell_quote(path));
@@ -110,9 +116,18 @@ if (mode == "stop-runtime" || mode == "start-runtime")
 exit(64);
 '
 
+write_stub "$FAKE_LIB/singbox/health.uc" "$stub_header"'
+let mode = as_string(ARGV[0]);
+record("singbox/health:" + mode);
+if (mode == "stop-runtime" || mode == "start-runtime")
+    exit(0);
+exit(64);
+'
+
 run_update() {
   local summary="$1"
   local log="$2"
+  local fail_call="${3:-}"
 
   : >"$log"
   env \
@@ -133,6 +148,7 @@ run_update() {
     FORKOP_RELOAD_STATE_FILE="$WORK_DIR/run/reload-state" \
     FORKOP_RULE_CONDITION_CACHE_DIR="$WORK_DIR/run/rule-condition-cache" \
     FAKE_CALL_LOG="$log" \
+    FAKE_FAIL_CALL="$fail_call" \
     FAKE_SUBSCRIPTION_UPDATE_SUMMARY="$summary" \
     ucode -L "$REAL_LIB" "$UPDATES_UC" subscription-update-if-due
 }
@@ -150,9 +166,11 @@ const expected = [
   "singbox/runtime:configure-service",
   "service/state:sing-box-service-runtime-pid",
   "singbox/dns_failover:stop-runtime",
+  "singbox/health:stop-runtime",
   "singbox/runtime:init-config:0:1:1",
   "singbox/priority:stop-runtime",
   "service/state:reload-sing-box-runtime",
+  "singbox/health:start-runtime",
   "singbox/priority:start-runtime",
   "singbox/dns_failover:start-runtime",
   "service/state:write-current-reload-state-clean",
@@ -174,8 +192,30 @@ JS
 unchanged_log="$WORK_DIR/unchanged.log"
 run_update "0 0 1 0" "$unchanged_log"
 
-if grep -Eq 'server/service|config/validator|singbox/runtime|singbox/priority|singbox/dns_failover|reload-sing-box-runtime|write-current-reload-state-clean' "$unchanged_log"; then
+if grep -Eq 'server/service|config/validator|singbox/runtime|singbox/health|singbox/priority|singbox/dns_failover|reload-sing-box-runtime|write-current-reload-state-clean' "$unchanged_log"; then
   fail "unchanged subscription update must not rebuild or reload sing-box"
 fi
+
+for failed_call in 'singbox/runtime:init-config:0:1:1' 'service/state:reload-sing-box-runtime' 'singbox/health:start-runtime'; do
+  failure_log="$WORK_DIR/failure-${failed_call//[:\/]/-}.log"
+  if run_update "1 0 0 0" "$failure_log" "$failed_call"; then
+    fail "failed $failed_call must report subscription update failure"
+  fi
+  node - "$failure_log" "$failed_call" <<'JS'
+const fs = require("fs");
+const calls = fs.readFileSync(process.argv[2], "utf8").trim().split(/\n+/);
+const failedCall = process.argv[3];
+const failure = calls.indexOf(failedCall);
+const healthStop = calls.indexOf("singbox/health:stop-runtime");
+if (healthStop < 0 || healthStop >= failure)
+  throw new Error("Smart selection must stop before rebuilding the runtime");
+for (const call of ["singbox/health:start-runtime", "singbox/dns_failover:start-runtime"])
+  if (!calls.includes(call)) throw new Error(`runtime was not recovered: ${call}`);
+if (failedCall !== "singbox/runtime:init-config:0:1:1" && !calls.includes("singbox/priority:start-runtime"))
+  throw new Error("Priority must recover after the reload attempt");
+if (calls.includes("service/state:write-current-reload-state-clean"))
+  throw new Error("failed runtime must not mark reload state clean");
+JS
+done
 
 printf 'subscription update reload checks passed\n'

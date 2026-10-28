@@ -23,8 +23,22 @@ ensure_stable_ref() {
     return 0
   fi
 
-  git -C "$ROOT_DIR" fetch --force --depth=1 origin "refs/tags/$STABLE_REF:refs/tags/$STABLE_REF" >/dev/null 2>&1 ||
-    fail "stable ref is unavailable and could not be fetched: $STABLE_REF"
+  if git -C "$ROOT_DIR" fetch --no-tags --depth=1 origin "refs/tags/$STABLE_REF:refs/tags/$STABLE_REF" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # Forks may omit the upstream baseline tag; only trust its known commit.
+  local upstream_commit="68d516e85b9a81b5a37e8e258610098ed03b02d1"
+  if [ "$STABLE_REF" = "0.7.19.9" ] &&
+    git -C "$ROOT_DIR" fetch --no-tags --depth=1 https://github.com/ushan0v/forkop.git "refs/tags/0.7.19.9" >/dev/null 2>&1; then
+    [ "$(git -C "$ROOT_DIR" rev-parse 'FETCH_HEAD^{commit}')" = "$upstream_commit" ] ||
+      fail "upstream stable tag $STABLE_REF does not match its pinned commit"
+    git -C "$ROOT_DIR" update-ref "refs/tags/$STABLE_REF" "$upstream_commit" "" ||
+      fail "could not store upstream stable ref: $STABLE_REF"
+    return 0
+  fi
+
+  fail "stable ref is unavailable from origin or the pinned upstream baseline: $STABLE_REF"
 }
 
 prepare_stable_repo() {

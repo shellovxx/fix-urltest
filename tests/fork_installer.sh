@@ -47,6 +47,8 @@ SING_BOX_REQUESTED_VARIANT=''
 [[ "$(ucode "$ROOT/forkop/files/usr/lib/core/constants.uc" get FORKOP_RELEASE_REPO)" == shellovxx/fix-urltest ]] || fail 'updates would return to upstream'
 opkg() { printf '%s\n' "$@" > "$WORK/opkg-install.args"; }
 PKG_IS_APK=0
+# The installer function was sourced above; the later definition is a fixture override.
+# shellcheck disable=SC2218
 pkg_install_files "$WORK/forkop_1.0.6.ipk"
 grep -Fxq -- '--force-reinstall' "$WORK/opkg-install.args" || fail 'same-version corrected release must be reinstalled'
 grep -Fxq -- '--force-downgrade' "$WORK/opkg-install.args" || fail 'installer must allow replacing 1.0.7 with corrected 1.0.6'
